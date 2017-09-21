@@ -1,4 +1,4 @@
-FROM alpine:latest
+FROM golang:alpine
 
 ENV GOPATH /go
 ENV APPPATH $GOPATH/src/github.com/lovoo/xenstat_exporter
