@@ -10,14 +10,23 @@ import (
 // Exporter implements the prometheus.Collector interface. It exposes the metrics
 // of a ipmi node.
 type Exporter struct {
-	config       Config
+	exporters    []*ExporterHost
+}
+
+type ExporterHost struct {
+	config       *HostConfig
 	metrics      []*prometheus.GaugeVec
 	totalScrapes prometheus.Counter
 	replacer     *strings.Replacer
 }
 
-// Config -
+// HostConfig -
 type Config struct {
+	configs []*HostConfig
+}
+
+// HostConfig -
+type HostConfig struct {
 	Xenhost string
 
 	Credentials struct {
@@ -28,33 +37,49 @@ type Config struct {
 
 // NewExporter instantiates a new ipmi Exporter.
 func NewExporter(config Config) *Exporter {
-	var e = &Exporter{
-		config: config,
+
+	exp := &Exporter{
+		exporters: make([]*ExporterHost, 0, len(config.configs)),
 	}
 
-	e.metrics = []*prometheus.GaugeVec{}
+	for _, host := range config.configs {
+		e := &ExporterHost{
+			config: host,
+		}
+		e.metrics = []*prometheus.GaugeVec{}
+		e.collect()
+		exp.exporters = append(exp.exporters, e)
+	}
 
-	e.collect()
-	return e
+	return exp
 }
 
 // Describe Describes all the registered stats metrics from the xen master.
-func (e *Exporter) Describe(ch chan<- *prometheus.Desc) {
-	for _, m := range e.metrics {
-		m.Describe(ch)
+func (exp *Exporter) Describe(ch chan<- *prometheus.Desc) {
+	for _, e := range exp.exporters {
+		if e == nil {
+			continue
+		}
+		for _, metric := range e.metrics {
+			metric.Describe(ch)
+		}
 	}
 }
 
 // Collect collects all the registered stats metrics from the xen master.
-func (e *Exporter) Collect(metrics chan<- prometheus.Metric) {
-	e.collect()
-
-	for _, m := range e.metrics {
-		m.Collect(metrics)
+func (exp *Exporter) Collect(metrics chan<- prometheus.Metric) {
+	for _, e := range exp.exporters {
+		if e == nil {
+			continue
+		}
+		e.collect()
+		for _, m := range e.metrics {
+			m.Collect(metrics)
+		}
 	}
 }
 
-func (e *Exporter) collect() {
+func (e *ExporterHost) collect() {
 	var err error
 
 	stats := NewXenstats(e.config)
